@@ -9,8 +9,8 @@ from segment_anything import sam_model_registry, SamPredictor
 from pycocotools import mask as mask_utils
 
 # --- Configuration ---
-image_folder = "<IMAGE_FOLDER>"
-checkpoint_path = "PATH_TO_MODEL"
+image_folder = "Dataset"
+checkpoint_path = "C:\\Users\\poten\\Downloads\\sam_vit_h_4b8939.pth"
 model_type = "vit_h"
 output_root = "segmentation_outputs"
 os.makedirs(output_root, exist_ok=True)
