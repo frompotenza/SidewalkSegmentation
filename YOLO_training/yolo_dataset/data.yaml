@@ -1,6 +1,0 @@
-names:
-- sidewalk
-nc: 1
-test: c:\Users\poten\SidewalkSegmentation\YOLO_training\yolo_dataset\images\test
-train: c:\Users\poten\SidewalkSegmentation\YOLO_training\yolo_dataset\images\train
-val: c:\Users\poten\SidewalkSegmentation\YOLO_training\yolo_dataset\images\val
