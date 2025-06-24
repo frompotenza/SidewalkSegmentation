@@ -1,6 +1,7 @@
 import cv2
 import os
 from ultralytics import YOLO
+from directions_calculation import get_hough_line_directions
 
 model = YOLO(r"prediction_pipeline\best_model_8.pt")
 
@@ -17,6 +18,8 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 frame_interval = int(fps * 0.25)  # Number of frames to skip for 0.5s interval
 
 confidence_threshold = 0.9
+max_detections = 3
+bbox_size_threshold = 6000  # area size in pixels
 label_count_threshold = 3
 frame_count = 0
 saved_count = 0
@@ -36,17 +39,23 @@ while True:
         resized_frame = cv2.resize(frame, (640, 640))
 
         # Run YOLO prediction
-        results = model(resized_frame)[0]
+        results = model(
+            resized_frame, conf=confidence_threshold, max_det=max_detections
+        )[0]
 
-        within_confidence = True
+        if results.boxes is None or results.masks is None:
+            continue
 
-        for box in results.boxes:
-            confidence = float(box.conf[0])  # Confidence score (0.0 - 1.0)
+        valid_detection = False
 
-            if confidence < confidence_threshold:
-                within_confidence = False
+        for bbox, mask in zip(results.boxes, results.masks):
+            _, _, width, height = bbox.xywh[0]
+            if width * height >= bbox_size_threshold:
+                valid_detection = True
+                angles = get_hough_line_directions(mask.data)
+                print(f"Detected {len(angles)} direction(s):", angles)
 
-        if not within_confidence or len(results.boxes) > label_count_threshold:
+        if not valid_detection:
             continue
 
         # Draw predictions on frame
