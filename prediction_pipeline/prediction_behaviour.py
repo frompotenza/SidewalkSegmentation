@@ -1,7 +1,7 @@
 import cv2
 import os
 from ultralytics import YOLO
-from directions_calculation import get_hough_line_directions
+from directions_calculation import get_movement_recommendation
 
 model = YOLO(r"prediction_pipeline\best_model_8.pt")
 
@@ -52,8 +52,7 @@ while True:
             _, _, width, height = bbox.xywh[0]
             if width * height >= bbox_size_threshold:
                 valid_detection = True
-                angles = get_hough_line_directions(mask.data)
-                print(f"Detected {len(angles)} direction(s):", angles)
+                recommendation = get_movement_recommendation(mask.data)
 
         if not valid_detection:
             continue
