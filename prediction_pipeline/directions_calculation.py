@@ -2,15 +2,23 @@ import torch
 import numpy as np
 import cv2
 import os
+import pyttsx3
 
 
 folder_path = r"prediction_pipeline\output_edges"
 os.makedirs(folder_path, exist_ok=True)
 file_index = 1
 
-height_delta = 50  # height in pixels
+height_delta = 15  # height in pixels
 dx_distance_threshold = 200
-distance_calculations = 4
+steps_distance = 12
+weight_decay = 0.05
+
+engine = pyttsx3.init()
+engine.setProperty(
+    "voice",
+    r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
+)
 
 
 def torch_mask_to_numpy(mask_tensor):
@@ -44,7 +52,9 @@ def get_movement_recommendation(mask_tensor):
     straight_recommendation_count = 0
     right_recommendation_count = 0
 
-    for _ in range(distance_calculations):
+    current_weight = 1
+
+    for i in range(steps_distance):
         target_y -= height_delta
         row_values = img_edges[target_y, :]  # Get the full row
 
@@ -52,10 +62,10 @@ def get_movement_recommendation(mask_tensor):
         for dx in range(1, x_center + 1):
             if row_values[x_center - dx] != 0:
                 if dx > dx_distance_threshold:
-                    straight_recommendation_count += 0.5
+                    straight_recommendation_count += 0.5 * current_weight
                 else:
                     right_recommendation_count += (
-                        1  # too close to the left --> go right
+                        1 * current_weight  # too close to the left --> go right
                     )
                 break
 
@@ -63,16 +73,26 @@ def get_movement_recommendation(mask_tensor):
         for dx in range(1, width - x_center):
             if row_values[x_center + dx] != 0:
                 if dx > dx_distance_threshold:
-                    straight_recommendation_count += 0.5
+                    straight_recommendation_count += 0.5 * current_weight
                 else:
-                    left_recommendation_count += 1  # too close to the right --> go left
+                    left_recommendation_count += (
+                        1 * current_weight
+                    )  # too close to the right --> go left
                 break
 
-    final_recommendation = "straight"
+        current_weight -= weight_decay
+
     if 0 < left_recommendation_count >= straight_recommendation_count:
-        final_recommendation = "left"
+        final_recommendation = "links"
+        engine.say("Nach " + final_recommendation + " gehen, sugi pula!")
     elif 0 < right_recommendation_count >= straight_recommendation_count:
-        final_recommendation = "right"
+        final_recommendation = "rechts"
+        engine.say("Nach " + final_recommendation + " gehen, sugi pula!")
+    else:
+        final_recommendation = "straight"
+        engine.say("Geradeaus gehen, sugi pula!")
+
+    engine.runAndWait()
 
     print(
         f"edges_{file_index} - right = {right_recommendation_count}, left = {left_recommendation_count}, straight = {straight_recommendation_count}"
@@ -97,10 +117,10 @@ def draw_direction_arrow(frame, direction):
     center = (width // 2, height - 50)  # Arrow base near the bottom center
     length = 100  # Length of the arrow
 
-    if direction == "left":
+    if direction == "links":
         end_point = (center[0] - length, center[1] - 50)
         color = (0, 255, 0)  # Green
-    elif direction == "right":
+    elif direction == "rechts":
         end_point = (center[0] + length, center[1] - 50)
         color = (255, 0, 0)  # Blue
     elif direction == "straight":

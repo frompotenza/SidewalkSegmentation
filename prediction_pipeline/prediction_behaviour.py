@@ -5,7 +5,7 @@ from directions_calculation import get_movement_recommendation
 
 model = YOLO(r"prediction_pipeline\best_model_8.pt")
 
-video_path = r"prediction_pipeline\WhatsApp Video 2025-06-16 at 15.37.43_5ffd0d83.mp4"
+video_path = r"prediction_pipeline\WhatsApp Video 2025-06-16 at 15.37.46_0f8688cb.mp4"
 output_folder = r"prediction_pipeline\predicted_frames"
 os.makedirs(output_folder, exist_ok=True)
 
