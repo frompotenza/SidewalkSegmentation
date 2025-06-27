@@ -17,19 +17,22 @@ height_delta = 15
 dx_distance_threshold = 200
 steps_distance = 12
 weight_decay = 0.05
-delta_threshold = 2  # Reset direction history after 2 seconds
+delta_threshold = 5  # Reset direction history after 5 seconds
 
 # TTS parameters
 engine = pyttsx3.init()
-engine.setProperty(
-    "voice",
-    r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
-)
+# engine.setProperty(
+#     "voice",
+#     r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
+# )
 
 # Global state
 last_three_predictions = []
+obstacle_count_sequence = 0
+obstacle_threshold = 3
 last_call_time = None
 file_index = 1
+last_recommendation = None
 
 
 def torch_mask_to_numpy(mask_tensor):
@@ -45,7 +48,7 @@ def get_movement_recommendation(mask_tensor):
     Analyze binary edge mask to determine direction.
     Direction is based on distance from center to edges at multiple row heights.
     """
-    global file_index, last_three_predictions, last_call_time
+    global file_index, last_three_predictions, last_call_time, last_recommendation, obstacle_count_sequence
 
     mask_bin = torch_mask_to_numpy(mask_tensor)
 
@@ -91,6 +94,12 @@ def get_movement_recommendation(mask_tensor):
 
         current_weight -= weight_decay
 
+    column_values = img_edges[:, x_center]
+    if any(x != 0 for x in column_values[-height_delta * steps_distance :]):
+        obstacle_count_sequence = min(obstacle_count_sequence + 1, obstacle_threshold)
+    else:
+        obstacle_count_sequence = max(obstacle_count_sequence - 1, 0)
+
     # Recommended direction based on weighted scores
     if 0 < left_score >= straight_score:
         final_recommendation = "links"
@@ -112,8 +121,14 @@ def get_movement_recommendation(mask_tensor):
         last_three_predictions.pop(0)
         final_recommendation, _ = Counter(last_three_predictions).most_common(1)[0]
 
-    # engine.say(f"{final_recommendation}, sugi pula!")
-    # engine.runAndWait()
+    # ~~(Un)comment for TTS recommendation~~
+    if final_recommendation != last_recommendation:
+        engine.say(f"{final_recommendation}")
+    if obstacle_count_sequence >= obstacle_threshold:
+        engine.say("Obstacle ahead.")
+        obstacle_count_sequence = 0
+    engine.runAndWait()
+    last_recommendation = final_recommendation
 
     # Save visualization with arrow
     frame = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2BGR)

@@ -24,7 +24,7 @@ frame_interval = int(fps * 0.25)
 # YOLO and filtering parameters
 confidence_threshold = 0.9
 max_detections = 1
-bbox_size_threshold = 6000  # Minimum bounding box area
+bbox_size_threshold = 150000  # Minimum bounding box area (200x200 pixels)
 
 frame_count = 0
 saved_count = 0
