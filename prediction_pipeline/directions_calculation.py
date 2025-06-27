@@ -2,39 +2,50 @@ import torch
 import numpy as np
 import cv2
 import os
+import time
 import pyttsx3
+from collections import Counter
 
 
+# Output folder for edge maps with direction arrows
 folder_path = r"prediction_pipeline\output_edges"
 os.makedirs(folder_path, exist_ok=True)
-file_index = 1
 
-height_delta = 15  # height in pixels
+
+# Tuning parameters for direction logic
+height_delta = 15
 dx_distance_threshold = 200
 steps_distance = 12
 weight_decay = 0.05
+delta_threshold = 2  # Reset direction history after 2 seconds
 
+# TTS parameters
 engine = pyttsx3.init()
 engine.setProperty(
     "voice",
     r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
 )
 
+# Global state
+last_three_predictions = []
+last_call_time = None
+file_index = 1
+
 
 def torch_mask_to_numpy(mask_tensor):
-    """
-    Converts a PyTorch mask tensor to a 2D binary NumPy array for processing.
-    Assumes input mask is [H, W] or [1, H, W] or [N, H, W] (single mask at a time).
-    """
+    """Convert a PyTorch mask tensor to binary 2D NumPy array."""
     if mask_tensor.ndim == 3:
-        mask_tensor = mask_tensor[0]  # Take first if batched
+        mask_tensor = mask_tensor[0]
     mask_np = mask_tensor.detach().cpu().numpy()
-    mask_bin = (mask_np > 0.5).astype(np.uint8)  # Threshold to binary mask
-    return mask_bin
+    return (mask_np > 0.5).astype(np.uint8)
 
 
 def get_movement_recommendation(mask_tensor):
-    global file_index
+    """
+    Analyze binary edge mask to determine direction.
+    Direction is based on distance from center to edges at multiple row heights.
+    """
+    global file_index, last_three_predictions, last_call_time
 
     mask_bin = torch_mask_to_numpy(mask_tensor)
 
@@ -44,75 +55,82 @@ def get_movement_recommendation(mask_tensor):
     img_edges = cv2.Canny(mask_bin * 255, 10, 150)
 
     height, width = img_edges.shape[:2]
-    # Coordinates: center X, bottom Y
     x_center = width // 2
     target_y = height - 1
 
-    left_recommendation_count = 0
-    straight_recommendation_count = 0
-    right_recommendation_count = 0
-
+    left_score = 0
+    straight_score = 0
+    right_score = 0
     current_weight = 1
 
-    for i in range(steps_distance):
+    # Analyze rows above the bottom in steps
+    for _ in range(steps_distance):
         target_y -= height_delta
-        row_values = img_edges[target_y, :]  # Get the full row
+        if target_y < 0:
+            break
 
-        # left distance
+        row_values = img_edges[target_y, :]
+
+        # Check edge distance on left side
         for dx in range(1, x_center + 1):
             if row_values[x_center - dx] != 0:
                 if dx > dx_distance_threshold:
-                    straight_recommendation_count += 0.5 * current_weight
+                    straight_score += current_weight / 2
                 else:
-                    right_recommendation_count += (
-                        1 * current_weight  # too close to the left --> go right
-                    )
+                    right_score += current_weight  # too close to the left --> go right
                 break
 
-        # right distance
+        # Check edge distance on right side
         for dx in range(1, width - x_center):
             if row_values[x_center + dx] != 0:
                 if dx > dx_distance_threshold:
-                    straight_recommendation_count += 0.5 * current_weight
+                    straight_score += current_weight / 2
                 else:
-                    left_recommendation_count += (
-                        1 * current_weight
-                    )  # too close to the right --> go left
+                    left_score += current_weight  # too close to the right --> go left
                 break
 
         current_weight -= weight_decay
 
-    if 0 < left_recommendation_count >= straight_recommendation_count:
+    # Recommended direction based on weighted scores
+    if 0 < left_score >= straight_score:
         final_recommendation = "links"
-        engine.say("Nach " + final_recommendation + " gehen, sugi pula!")
-    elif 0 < right_recommendation_count >= straight_recommendation_count:
+    elif 0 < right_score >= straight_score:
         final_recommendation = "rechts"
-        engine.say("Nach " + final_recommendation + " gehen, sugi pula!")
     else:
-        final_recommendation = "straight"
-        engine.say("Geradeaus gehen, sugi pula!")
+        final_recommendation = "geradeaus"
 
-    engine.runAndWait()
+    # Reset direction history if too much time has passed
+    current_time = time.perf_counter()
+    if last_call_time is not None and current_time - last_call_time > delta_threshold:
+        print("\n\n!!! Resetting recent predictions !!!\n\n")
+        last_three_predictions = []
+    last_call_time = current_time
 
-    print(
-        f"edges_{file_index} - right = {right_recommendation_count}, left = {left_recommendation_count}, straight = {straight_recommendation_count}"
-    )
+    # Keep last 3 predictions to stabilize output
+    last_three_predictions.append(final_recommendation)
+    if len(last_three_predictions) > 3:
+        last_three_predictions.pop(0)
+        final_recommendation, _ = Counter(last_three_predictions).most_common(1)[0]
 
+    # engine.say(f"{final_recommendation}, sugi pula!")
+    # engine.runAndWait()
+
+    # Save visualization with arrow
     frame = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2BGR)
-
-    # Draw direction arrow
     frame = draw_direction_arrow(frame, final_recommendation)
 
-    # Save to disk
-    file_name = f"edges_{file_index}.png"
-    full_path = os.path.join(folder_path, file_name)
-    cv2.imwrite(full_path, frame)
+    # Save visualization
+    save_path = os.path.join(folder_path, f"edges_{file_index}.png")
+    cv2.imwrite(save_path, frame)
     file_index += 1
 
     return final_recommendation
 
 
 def draw_direction_arrow(frame, direction):
+    """
+    Draws a colored arrow (green=left, blue=right, red=straight) on the image
+    """
     height, width = frame.shape[:2]
     center = (width // 2, height - 50)  # Arrow base near the bottom center
     length = 100  # Length of the arrow
@@ -123,13 +141,11 @@ def draw_direction_arrow(frame, direction):
     elif direction == "rechts":
         end_point = (center[0] + length, center[1] - 50)
         color = (255, 0, 0)  # Blue
-    elif direction == "straight":
+    elif direction == "geradeaus":
         end_point = (center[0], center[1] - length)
         color = (0, 0, 255)  # Red
     else:
         raise ValueError("Direction must be 'left', 'right', or 'straight'")
 
-    # Draw the arrow
     cv2.arrowedLine(frame, center, end_point, color=color, thickness=5, tipLength=0.4)
-
     return frame
