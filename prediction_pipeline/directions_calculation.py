@@ -21,10 +21,10 @@ delta_threshold = 5  # Reset direction history after 5 seconds
 
 # TTS parameters
 engine = pyttsx3.init()
-# engine.setProperty(
-#     "voice",
-#     r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
-# )
+engine.setProperty(
+    "voice",
+    r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_DE-DE_HEDDA_11.0",
+)
 
 # Global state
 last_three_predictions = []

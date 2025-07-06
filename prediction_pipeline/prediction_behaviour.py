@@ -7,8 +7,9 @@ from directions_calculation import get_movement_recommendation
 model = YOLO(r"prediction_pipeline\best_model_8.pt")
 
 # Set paths
-video_path = r"prediction_pipeline\video2.mp4"
-output_folder = r"prediction_pipeline\predicted_frames"
+video_path = r"Test_Videos_Sidewalk\WhatsApp Video 2025-07-06 at 15.33.12_f87fea2e.mp4"
+output_video_path = r"Test_Videos_Sidewalk\segmented_only_output.mp4"
+output_folder = r"Test_Videos_Sidewalk\predicted_frames"
 os.makedirs(output_folder, exist_ok=True)
 
 # Open video
@@ -17,18 +18,22 @@ if not cap.isOpened():
     print("Error opening video.")
     exit()
 
-# Determine frame skip interval (e.g., every 0.25s)
+# Get original video properties
 fps = cap.get(cv2.CAP_PROP_FPS)
-frame_interval = int(fps * 0.25)
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+frame_interval = int(fps * 0.25)  # Analyze every 0.25s
 
-# YOLO and filtering parameters
+# Prepare video writer (only initialized after first valid frame)
+video_writer = None
+
+# Parameters
 confidence_threshold = 0.9
 max_detections = 1
-bbox_size_threshold = 150000  # Minimum bounding box area (200x200 pixels)
+bbox_size_threshold = 150000  # Minimum bbox area
 
 frame_count = 0
 saved_count = 0
-
 
 while True:
     ret, frame = cap.read()
@@ -36,52 +41,58 @@ while True:
         print("End of video.")
         break
 
-    # Display original video stream
-    cv2.imshow("Video Playback", frame)
-
-    # Perform detection at defined interval
     if frame_count % frame_interval == 0:
-        # Resize frame to 640x640 before inference
+        # Resize for YOLO input
         resized_frame = cv2.resize(frame, (640, 640))
 
-        # Run YOLO prediction
+        # Run detection
         results = model(
             resized_frame, conf=confidence_threshold, max_det=max_detections
         )[0]
 
-        if results.boxes is None or results.masks is None:
-            frame_count += 1
-            continue
+        if (
+            results.boxes is not None
+            and results.masks is not None
+            and len(results.boxes) > 0
+        ):
+            bbox = results.boxes[0]
+            mask = results.masks[0]
+            _, _, width, height = bbox.xywh[0]
 
-        valid_detection = False
+            if width * height >= bbox_size_threshold:
+                # Movement recommendation (optional logic)
+                get_movement_recommendation(mask.data)
 
-        # Only one detection (max_detections=1)
-        bbox = results.boxes[0]
-        mask = results.masks[0]
-        _, _, width, height = bbox.xywh[0]
-        # Filter out predictions that are too small
-        if width * height >= bbox_size_threshold:
-            valid_detection = True
-            recommendation = get_movement_recommendation(mask.data)
-        else:
-            frame_count += 1
-            continue
+                # Overlay prediction
+                segmented_resized = results.plot()
 
-        # Draw prediction results on frame
-        annotated_frame = results.plot()
-        cv2.imshow("YOLO Prediction", annotated_frame)
+                # Resize back to original dimensions
+                segmented_frame = cv2.resize(
+                    segmented_resized, (frame_width, frame_height)
+                )
 
-        # Save prediction frame
-        save_path = os.path.join(output_folder, f"frame_{saved_count:04d}.jpg")
-        cv2.imwrite(save_path, annotated_frame)
-        print(f"Saved {save_path}")
-        saved_count += 1
+                # Initialize video writer on first valid frame
+                if video_writer is None:
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    video_writer = cv2.VideoWriter(
+                        output_video_path, fourcc, fps, (frame_width, frame_height)
+                    )
+
+                # Write segmented frame
+                video_writer.write(segmented_frame)
+
+                # Save frame image
+                save_path = os.path.join(output_folder, f"frame_{saved_count:04d}.jpg")
+                cv2.imwrite(save_path, segmented_frame)
+                print(f"Saved {save_path}")
+                saved_count += 1
 
     frame_count += 1
 
-    # Exit on pressing 'q'
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
+# Cleanup
 cap.release()
+if video_writer:
+    video_writer.release()
 cv2.destroyAllWindows()
+
+print(f"Segmented video saved: {output_video_path}")
